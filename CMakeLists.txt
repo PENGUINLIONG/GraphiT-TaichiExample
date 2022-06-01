@@ -1,14 +1,9 @@
 ﻿cmake_minimum_required (VERSION 3.10)
 
 # Replace this with your project name.
-set(PROJECT_NAME "GraphiT-Template")
+set(PROJECT_NAME "GraphiT-TaichiExample")
 
 project (${PROJECT_NAME} LANGUAGES CXX)
-
-
-
-option(WITH_VULKAN "Build Graphi-T with Vulkan GPU backend" ON)
-option(WITH_GLSLANG "Build Graphi-T with glslang for runtime-shader compilation" ON)
 
 
 
@@ -30,29 +25,32 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE PATH "Build Type" FORCE)
 endif()
 
-set(GFT_WITH_VULKAN ${WITH_VULKAN})
-set(GFT_WITH_GLSLANG ${WITH_GLSLANG})
-
-add_definitions(-DGFT_WITH_VULKAN=${WITH_VULKAN})
-add_definitions(-DGFT_WITH_GLSLANG=${WITH_GLSLANG})
-
 add_subdirectory(third/graphi-t)
+
+set(TI_WITH_PYTHON OFF)
+set(TI_WITH_VULKAN ON)
+add_subdirectory($ENV{TAICHI_REPO_DIR} taichi)
+set_target_properties(taichi_c_api PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin"
+    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
 
 find_package(Vulkan REQUIRED)
 
 set(LINK_LIBS
     ${Vulkan_LIBRARIES}
     GraphiT
+    taichi_c_api
 )
 set(INC_DIRS
     ${Vulkan_INCLUDE_DIRS}
     "${PROJECT_SOURCE_DIR}/include"
     "${PROJECT_SOURCE_DIR}/third/graphi-t/include"
+    "$ENV{TAICHI_REPO_DIR}/c_api"
 )
 
-# The GraphiT library.
 include_directories(${INC_DIRS})
 file(GLOB_RECURSE SRCS "${PROJECT_SOURCE_DIR}/src/*")
 file(GLOB_RECURSE INCS "${PROJECT_SOURCE_DIR}/include/*")
 add_executable(${PROJECT_NAME} ${SRCS} ${INCS})
-target_link_libraries(${PROJECT_NAME} GraphiT)
+target_link_libraries(${PROJECT_NAME} ${LINK_LIBS})

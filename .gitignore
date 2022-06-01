@@ -1,6 +1,7 @@
 out
 bin
 tmp
+taichi
 .vs
 .vscode
 .idea
