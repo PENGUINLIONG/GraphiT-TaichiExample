@@ -7,3 +7,4 @@ taichi
 .idea
 build*
 CMakeSettings.json
+!prebuilt/**

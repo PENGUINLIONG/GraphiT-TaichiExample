@@ -1,16 +1,11 @@
 param(
-    [string] $AppName,
-    [switch] $Verbose
+    [switch] $BuildTaichiFromScratch
 )
 
-if (-not $AppName) {
-    $AppName = "GraphiT-Template"
-}
-
-$CmdArgs = ""
-
-if ($Verbose) {
-    $CmdArgs += "-v"
+if ($BuildTaichiFromScratch) {
+    $env:BUILD_TAICHI_FROM_SCRATCH = 1
+} else {
+    $env:BUILD_TAICHI_FROM_SCRATCH = 0
 }
 
 if (-not(Test-Path "build-host")) {
@@ -19,11 +14,11 @@ if (-not(Test-Path "build-host")) {
 
 Push-Location "build-host"
 cmake ..
-cmake --build . -t $AppName
+cmake --build . -t GraphiT-TaichiExample --config Release
 Pop-Location
 
 if ($lastexitcode -ne 0) {
     exit
 }
 
-& ./build-host/bin/Debug/$AppName.exe $CmdArgs
+& ./build-host/bin/GraphiT-TaichiExample.exe -m ./assets
