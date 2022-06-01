@@ -1,0 +1,3 @@
+[submodule "third/graphi-t"]
+	path = third/graphi-t
+	url = https://github.com/PENGUINLIONG/graphi-t
