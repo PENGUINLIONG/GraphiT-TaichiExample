@@ -16,7 +16,7 @@ static const char* APP_DESC = "GraphiT project template.";
 
 
 template<typename T>
-TiNdArray allocate_ndarray(TiDevice device, const std::vector<uint32_t>& shape) {
+TiNdArray allocate_ndarray(TiRuntime runtime, const std::vector<uint32_t>& shape) {
   size_t size = sizeof(T);
   TiNdArray out {};
   out.shape.dim_count = shape.size();
@@ -27,7 +27,7 @@ TiNdArray allocate_ndarray(TiDevice device, const std::vector<uint32_t>& shape) 
   TiMemoryAllocateInfo mai {};
   mai.usage = TI_MEMORY_USAGE_STORAGE_BIT;
   mai.size = size;
-  out.devmem = ti_allocate_device_memory(device, &mai);
+  out.memory = ti_allocate_memory(runtime, &mai);
   return out;
 }
 
@@ -56,28 +56,31 @@ void initialize(int argc, const char** argv) {
 }
 
 struct Module_fractal {
-  TiContext context_;
+  TiRuntime runtime_;
   TiAotModule aot_module_;
   TiKernel kernel_fractal_;
 
-  Module_fractal(TiContext context, const char* module_path) :
-    context_(context),
-    aot_module_(ti_load_vulkan_aot_module(context, module_path)),
+  Module_fractal(TiRuntime context, const char* module_path) :
+    runtime_(context),
+    aot_module_(ti_load_aot_module(context, module_path)),
     kernel_fractal_(ti_get_aot_module_kernel(aot_module_, "fractal")) {}
   ~Module_fractal() {
     ti_destroy_aot_module(aot_module_);
   }
 
   void fractal(float t, const TiNdArray& canvas) {
-    ti_set_context_arg_f32(context_, 0, t);
-    ti_set_context_arg_ndarray(context_, 1, &canvas);
-    ti_launch_kernel(context_, kernel_fractal_);
+    std::array<TiArgument, 2> args {};
+    args[0].type = TI_ARGUMENT_TYPE_F32;
+    args[0].value.f32 = t;
+    args[1].type = TI_ARGUMENT_TYPE_NDARRAY;
+    args[1].value.ndarray = canvas;
+
+    ti_launch_kernel(runtime_, kernel_fractal_, args.size(), args.data());
   }
 };
 
 struct FractalApp {
-  TiDevice device_;
-  TiContext context_;
+  TiRuntime runtime_;
 
   Module_fractal module_fractal_;
 
@@ -85,8 +88,9 @@ struct FractalApp {
 
   scoped::Task copy_task;
 
-  TiDevice create_taichi_device(const scoped::Context& ctxt) {
-    TiVulkanDeviceInteropInfo vdii {};
+  TiRuntime create_taichi_device(const scoped::Context& ctxt) {
+    TiVulkanRuntimeInteropInfo vdii {};
+    vdii.api_version = vk::get_inst().api_ver;
     vdii.instance = vk::get_inst().inst;
     vdii.physical_device = ctxt.inner->physdev();
     vdii.device = ctxt.inner->dev;
@@ -97,7 +101,7 @@ struct FractalApp {
     vdii.graphics_queue = graph_submit_detail.queue;
     vdii.graphics_queue_family_index = graph_submit_detail.qfam_idx;
 
-    TiDevice out = ti_import_vulkan_device(&vdii);
+    TiRuntime out = ti_import_vulkan_runtime(&vdii);
     return out;
   }
 
@@ -135,14 +139,12 @@ struct FractalApp {
   }
 
   FractalApp(const scoped::Context& ctxt, const std::string& module_path) :
-    device_(create_taichi_device(ctxt)),
-    context_(ti_create_context(device_)),
-    module_fractal_(context_, module_path.c_str()),
-    ndarray_canvas(allocate_ndarray<float>(device_, { 640, 320 })),
+    runtime_(create_taichi_device(ctxt)),
+    module_fractal_(runtime_, module_path.c_str()),
+    ndarray_canvas(allocate_ndarray<float>(runtime_, { 640, 320 })),
     copy_task(create_copy_task(ctxt)) {}
   ~FractalApp() {
-    ti_destroy_context(context_);
-    ti_destroy_device(device_);
+    ti_destroy_runtime(runtime_);
   }
 
   void run(
@@ -151,10 +153,10 @@ struct FractalApp {
     uint32_t iframe
   ) {
     module_fractal_.fractal(iframe * 0.03f, ndarray_canvas);
-    ti_submit(device_);
+    ti_submit(runtime_);
 
-    TiVulkanDeviceMemoryInteropInfo vdmii;
-    ti_export_vulkan_device_memory(device_, ndarray_canvas.devmem, &vdmii);
+    TiVulkanMemoryInteropInfo vdmii;
+    ti_export_vulkan_memory(runtime_, ndarray_canvas.memory, &vdmii);
 
     scoped::Image render_target_img = swapchain.get_img();
     uint32_t width = render_target_img.cfg().width;
@@ -189,7 +191,7 @@ struct FractalApp {
     src_buf.buf_cfg.usage =
       L_BUFFER_USAGE_STORAGE_BIT | L_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
-    ti_wait(device_);
+    ti_wait(runtime_);
 
     scoped::Invocation copy_invoke = copy_task.build_comp_invoke()
       .rsc(uniform_buf.view())
