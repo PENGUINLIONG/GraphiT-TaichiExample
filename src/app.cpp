@@ -27,6 +27,7 @@ TiNdArray allocate_ndarray(TiDevice device, const std::vector<uint32_t>& shape) 
   TiMemoryAllocateInfo mai {};
   mai.usage = TI_MEMORY_USAGE_STORAGE_BIT;
   mai.size = size;
+  out.devmem = ti_allocate_memory(device, &mai);
   return out;
 }
 
@@ -50,6 +51,8 @@ void initialize(int argc, const char** argv) {
   log::LogLevel level = CFG.verbose ?
     log::LogLevel::L_LOG_LEVEL_DEBUG : log::LogLevel::L_LOG_LEVEL_INFO;
   log::set_log_filter_level(level);
+
+  vk::initialize();
 }
 
 struct Module_fractal {
@@ -84,8 +87,8 @@ struct FractalApp {
 
   TiDevice create_taichi_device(const scoped::Context& ctxt) {
     TiVulkanDeviceInteropInfo vdii {};
-    vdii.instance = vk::inst;
-    vdii.physical_device = ctxt.inner->physdev;
+    vdii.instance = vk::get_inst().inst;
+    vdii.physical_device = ctxt.inner->physdev();
     vdii.device = ctxt.inner->dev;
     const auto& comp_submit_detail = ctxt.inner->submit_details.at(L_SUBMIT_TYPE_COMPUTE);
     vdii.compute_queue = comp_submit_detail.queue;
@@ -181,7 +184,7 @@ struct FractalApp {
     src_buf.buf = vdmii.buffer;
     src_buf.buf_cfg.align = 1;
     src_buf.buf_cfg.size = vdmii.size;
-    assert(vdmii.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT != 0 &&
+    L_ASSERT(vdmii.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT != 0 &&
       vdmii.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT != 0);
     src_buf.buf_cfg.usage =
       L_BUFFER_USAGE_STORAGE_BIT | L_BUFFER_USAGE_TRANSFER_SRC_BIT;
