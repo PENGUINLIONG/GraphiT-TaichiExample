@@ -27,7 +27,7 @@ TiNdArray allocate_ndarray(TiDevice device, const std::vector<uint32_t>& shape) 
   TiMemoryAllocateInfo mai {};
   mai.usage = TI_MEMORY_USAGE_STORAGE_BIT;
   mai.size = size;
-  out.devmem = ti_allocate_memory(device, &mai);
+  out.devmem = ti_allocate_device_memory(device, &mai);
   return out;
 }
 
@@ -151,7 +151,7 @@ struct FractalApp {
     uint32_t iframe
   ) {
     module_fractal_.fractal(iframe * 0.03f, ndarray_canvas);
-    ti_device_wait_idle(device_);
+    ti_submit(device_);
 
     TiVulkanDeviceMemoryInteropInfo vdmii;
     ti_export_vulkan_device_memory(device_, ndarray_canvas.devmem, &vdmii);
@@ -188,6 +188,8 @@ struct FractalApp {
       vdmii.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT != 0);
     src_buf.buf_cfg.usage =
       L_BUFFER_USAGE_STORAGE_BIT | L_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    ti_wait(device_);
 
     scoped::Invocation copy_invoke = copy_task.build_comp_invoke()
       .rsc(uniform_buf.view())
