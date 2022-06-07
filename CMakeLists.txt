@@ -46,6 +46,7 @@ if ($ENV{BUILD_TAICHI_FROM_SCRATCH})
     set(TI_WITH_PYTHON OFF)
     set(TI_WITH_LLVM OFF)
     set(TI_WITH_VULKAN ON)
+    set(TI_EXPORT_CORE ON)
     add_subdirectory($ENV{TAICHI_REPO_DIR} taichi)
     set_target_properties(taichi_c_api PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin"

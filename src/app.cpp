@@ -34,6 +34,7 @@ TiNdArray allocate_ndarray(TiRuntime runtime, const std::vector<uint32_t>& shape
 
 struct AppConfig {
   bool verbose = false;
+  bool kernel = false;
   std::string module_dir = "";
 } CFG;
 
@@ -41,6 +42,8 @@ void initialize(int argc, const char** argv) {
   args::init_arg_parse(APP_NAME, APP_DESC);
   args::reg_arg<args::SwitchParser>("-v", "--verbose", CFG.verbose,
     "Produce extra amount of logs for debugging.");
+  args::reg_arg<args::SwitchParser>("-k", "--kernel", CFG.kernel,
+    "Run kernel instead of compute graph.");
   args::reg_arg<args::StringParser>("-m", "--module-dir", CFG.module_dir,
     "Precompiled AOT module root directory.");
 
@@ -56,19 +59,24 @@ void initialize(int argc, const char** argv) {
 }
 
 struct Module_fractal {
+  virtual ~Module_fractal() { }
+  virtual void fractal(float t, const TiNdArray& canvas) = 0;
+};
+
+struct Module_fractal_kernel : public Module_fractal {
   TiRuntime runtime_;
   TiAotModule aot_module_;
   TiKernel kernel_fractal_;
 
-  Module_fractal(TiRuntime context, const char* module_path) :
+  Module_fractal_kernel(TiRuntime context, const char* module_path) :
     runtime_(context),
     aot_module_(ti_load_aot_module(context, module_path)),
     kernel_fractal_(ti_get_aot_module_kernel(aot_module_, "fractal")) {}
-  ~Module_fractal() {
+  virtual ~Module_fractal_kernel() override final {
     ti_destroy_aot_module(aot_module_);
   }
 
-  void fractal(float t, const TiNdArray& canvas) {
+  virtual void fractal(float t, const TiNdArray& canvas) override final {
     std::array<TiArgument, 2> args {};
     args[0].type = TI_ARGUMENT_TYPE_F32;
     args[0].value.f32 = t;
@@ -79,10 +87,36 @@ struct Module_fractal {
   }
 };
 
+struct Module_fractal_cgraph : public Module_fractal {
+  TiRuntime runtime_;
+  TiAotModule aot_module_;
+  TiComputeGraph compute_graph_fractal_;
+
+  Module_fractal_cgraph(TiRuntime context, const char* module_path) :
+    runtime_(context),
+    aot_module_(ti_load_aot_module(context, module_path)),
+    compute_graph_fractal_(ti_get_aot_module_compute_graph(aot_module_, "fractal")) {}
+  virtual ~Module_fractal_cgraph() override final {
+    ti_destroy_aot_module(aot_module_);
+  }
+
+  virtual void fractal(float t, const TiNdArray& canvas) override final {
+    std::array<TiNamedArgument, 2> args {};
+    args[0].name = "t";
+    args[0].arg.type = TI_ARGUMENT_TYPE_F32;
+    args[0].arg.value.f32 = t;
+    args[1].name = "canvas";
+    args[1].arg.type = TI_ARGUMENT_TYPE_NDARRAY;
+    args[1].arg.value.ndarray = canvas;
+
+    ti_launch_compute_graph(runtime_, compute_graph_fractal_, args.size(), args.data());
+  }
+};
+
 struct FractalApp {
   TiRuntime runtime_;
 
-  Module_fractal module_fractal_;
+  std::unique_ptr<Module_fractal> module_fractal_;
 
   TiNdArray ndarray_canvas;
 
@@ -138,9 +172,19 @@ struct FractalApp {
     return copy_task;
   }
 
+  std::unique_ptr<Module_fractal> create_module_fractal(TiRuntime runtime, const std::string& module_path) {
+    if (CFG.kernel) {
+      log::info("kernel module is loaded");
+      return std::unique_ptr<Module_fractal>(new Module_fractal_kernel(runtime_, (module_path + "/fractal").c_str()));
+    } else {
+      log::info("compute graph module is loaded");
+      return std::unique_ptr<Module_fractal>(new Module_fractal_cgraph(runtime_, (module_path + "/fractal.cgraph").c_str()));
+    }
+  }
+
   FractalApp(const scoped::Context& ctxt, const std::string& module_path) :
     runtime_(create_taichi_device(ctxt)),
-    module_fractal_(runtime_, module_path.c_str()),
+    module_fractal_(create_module_fractal(runtime_, module_path)),
     ndarray_canvas(allocate_ndarray<float>(runtime_, { 640, 320 })),
     copy_task(create_copy_task(ctxt)) {}
   ~FractalApp() {
@@ -152,7 +196,7 @@ struct FractalApp {
     const scoped::Swapchain& swapchain,
     uint32_t iframe
   ) {
-    module_fractal_.fractal(iframe * 0.03f, ndarray_canvas);
+    module_fractal_->fractal(iframe * 0.03f, ndarray_canvas);
     ti_submit(runtime_);
 
     TiVulkanMemoryInteropInfo vdmii;
@@ -226,7 +270,7 @@ void guarded_main() {
   scoped::Swapchain swapchain = ctxt.build_swapchain("swapchain")
     .build();
 
-  FractalApp app(ctxt, CFG.module_dir + "/fractal");
+  FractalApp app(ctxt, CFG.module_dir);
 
   for (uint32_t i = 0;; ++i) {
     app.run(ctxt, swapchain, i);
